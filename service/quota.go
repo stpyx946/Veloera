@@ -394,8 +394,10 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 
 func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
 
+	var subscriptionUsed, quotaUsed int
 	if quota > 0 {
-		subscriptionUsed, quotaUsed, consumeErr := model.ConsumeUserQuota(relayInfo.UserId, quota)
+		var consumeErr error
+		subscriptionUsed, quotaUsed, consumeErr = model.ConsumeUserQuota(relayInfo.UserId, quota)
 		if consumeErr != nil {
 			return consumeErr
 		}
@@ -438,12 +440,23 @@ func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQu
 
 	if !relayInfo.IsPlayground {
 		if quota > 0 {
-			err = model.DecreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
-		} else {
+			tokenErr := model.DecreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota)
+			if tokenErr != nil {
+				if subscriptionUsed > 0 || quotaUsed > 0 {
+					rollbackErr := model.RestoreUserQuota(relayInfo.UserId, subscriptionUsed, quotaUsed)
+					if rollbackErr != nil {
+						common.SysError(fmt.Sprintf("failed to rollback user quota for user %d after token consume error: %s", relayInfo.UserId, rollbackErr.Error()))
+					} else {
+						relayInfo.TrackRefundedQuota(subscriptionUsed, quotaUsed)
+					}
+				}
+				return tokenErr
+			}
+		} else if quota < 0 {
 			err = model.IncreaseTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, -quota)
-		}
-		if err != nil {
-			return err
+			if err != nil {
+				return err
+			}
 		}
 	}
 
