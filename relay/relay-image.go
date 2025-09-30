@@ -115,6 +115,9 @@ func ImageHelper(c *gin.Context) *dto.OpenAIErrorWithStatusCode {
 	}
 
 	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	if err != nil {
+		return service.OpenAIErrorWrapperLocal(err, "get_user_quota_failed", http.StatusInternalServerError)
+	}
 
 	sizeRatio := 1.0
 	// Size
